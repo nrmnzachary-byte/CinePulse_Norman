@@ -8,9 +8,10 @@ import {
   getOfficialArtworkUrl,
   GENERATIONS,
   TYPE_COLORS,
+  sound,
 } from "../utils.js";
 
-const PAGE_SIZE = 40;
+const PAGE_SIZE = 48;
 
 function PokemonList() {
   const [pokemons, setPokemons] = useState([]);
@@ -23,7 +24,7 @@ function PokemonList() {
   const [selectedGen, setSelectedGen] = useState("all");
   const [selectedType, setSelectedType] = useState("all");
   const [filterQuery, setFilterQuery] = useState("");
-  const [displayMode, setDisplayMode] = useState("artwork"); // "sprite" or "artwork"
+  const [displayMode, setDisplayMode] = useState("artwork");
   const [page, setPage] = useState(1);
 
   // Initial load or Generation change
@@ -40,7 +41,7 @@ function PokemonList() {
         const limit = genConfig.id === "all" ? 1025 : genConfig.limit;
         const offset = genConfig.offset;
 
-        // If a specific type is selected, we fetch from type endpoint
+        // If a specific type is selected, we fetch from the type endpoint
         if (selectedType !== "all") {
           const typeResp = await fetch(`${API_BASE_URL}/type/${selectedType}`);
           if (!typeResp.ok) throw new Error(`Status ${typeResp.status}`);
@@ -93,19 +94,18 @@ function PokemonList() {
     };
   }, [selectedGen, selectedType]);
 
-  // Load more pokemon
   const handleLoadMore = () => {
     setIsLoadingMore(true);
+    sound.playBlip();
     const nextPage = page + 1;
-    const startIndex = 0;
     const endIndex = nextPage * PAGE_SIZE;
-    setPokemons(allGenerationList.slice(startIndex, endIndex));
+    setPokemons(allGenerationList.slice(0, endIndex));
     setPage(nextPage);
     setIsLoadingMore(false);
   };
 
-  // Load all remaining in this generation
   const handleLoadAll = () => {
+    sound.playCatch();
     setPokemons(allGenerationList);
     setPage(Math.ceil(allGenerationList.length / PAGE_SIZE));
   };
@@ -122,7 +122,7 @@ function PokemonList() {
     );
   }
 
-  // Filter loaded pokemon by text search
+  // Filter loaded pokemon by query
   const visiblePokemons = pokemons.filter((pokemon) => {
     if (!filterQuery) return true;
     const q = filterQuery.toLowerCase();
@@ -138,14 +138,20 @@ function PokemonList() {
       <div className="filter-panel glass-card">
         {/* Generation Tabs */}
         <div className="gen-selector-wrapper">
-          <span className="filter-title">Generations:</span>
+          <div className="filter-title-row">
+            <span className="filter-title">Generations:</span>
+            <span className="gen-count-hint">Gen 1 to Gen 9 (All 1,025 Pokémon)</span>
+          </div>
           <div className="gen-tabs-scroll">
             {GENERATIONS.map((gen) => (
               <button
                 key={gen.id}
                 type="button"
                 className={`gen-tab-btn ${selectedGen === gen.id ? "active" : ""}`}
-                onClick={() => setSelectedGen(gen.id)}
+                onClick={() => {
+                  sound.playBlip();
+                  setSelectedGen(gen.id);
+                }}
               >
                 {gen.name}
               </button>
@@ -155,42 +161,61 @@ function PokemonList() {
 
         {/* Type Filter Pills */}
         <div className="type-selector-wrapper">
-          <span className="filter-title">Types:</span>
+          <span className="filter-title">Filter By Elemental Type:</span>
           <div className="type-chips-scroll">
             <button
               type="button"
               className={`type-chip-btn ${selectedType === "all" ? "active" : ""}`}
-              onClick={() => setSelectedType("all")}
+              onClick={() => {
+                sound.playBlip();
+                setSelectedType("all");
+              }}
             >
-              All Types
+              🌈 All Types
             </button>
-            {Object.keys(TYPE_COLORS).map((type) => (
-              <button
-                key={type}
-                type="button"
-                className={`type-chip-btn ${selectedType === type ? "active" : ""}`}
-                style={{
-                  "--type-color": TYPE_COLORS[type].bg,
-                  "--type-glow": TYPE_COLORS[type].glow,
-                }}
-                onClick={() => setSelectedType(type)}
-              >
-                {capitalize(type)}
-              </button>
-            ))}
+            {Object.keys(TYPE_COLORS).map((type) => {
+              const info = TYPE_COLORS[type];
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  className={`type-chip-btn ${selectedType === type ? "active" : ""}`}
+                  style={{
+                    "--type-color": info.bg,
+                    "--type-glow": info.glow,
+                  }}
+                  onClick={() => {
+                    sound.playBlip();
+                    setSelectedType(type);
+                  }}
+                >
+                  <span className="type-chip-icon">{info.icon}</span> {capitalize(type)}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* Quick Instant Search + Display Switcher */}
+        {/* Sub filter row */}
         <div className="sub-filter-row">
           <div className="instant-filter-box">
+            <span className="quick-filter-icon" aria-hidden="true">⚡</span>
             <input
               type="text"
-              placeholder="Quick filter loaded Pokémon..."
+              placeholder="Quick filter in current view (e.g. char, 006)..."
               value={filterQuery}
               onChange={(e) => setFilterQuery(e.target.value)}
               className="quick-filter-input"
             />
+            {filterQuery && (
+              <button
+                type="button"
+                className="filter-clear-btn"
+                onClick={() => setFilterQuery("")}
+              >
+                ✕
+              </button>
+            )}
           </div>
 
           <div className="view-toggle-group">
@@ -198,7 +223,7 @@ function PokemonList() {
               type="button"
               className={`view-toggle-btn ${displayMode === "artwork" ? "active" : ""}`}
               onClick={() => setDisplayMode("artwork")}
-              title="HD Official Artwork"
+              title="Official 3D Artwork"
             >
               🎨 HD Artwork
             </button>
@@ -215,7 +240,7 @@ function PokemonList() {
 
         <div className="counter-badge">
           Showing <strong>{visiblePokemons.length}</strong> of{" "}
-          <strong>{allGenerationList.length}</strong> Pokémon in view
+          <strong>{allGenerationList.length}</strong> Pokémon
         </div>
       </div>
 
@@ -228,27 +253,34 @@ function PokemonList() {
 
           return (
             <li key={pokemon.name} className="pokemon-list-item">
-              <Link to={`/pokemon/${pokemon.name}`} className="pokemon-link">
+              <Link
+                to={`/pokemon/${pokemon.name}`}
+                className="pokemon-link holographic-card"
+                onClick={() => sound.playBlip()}
+              >
                 <div className="pokemon-card-art">
                   <img
                     className="pokemon-sprite"
                     src={displayMode === "artwork" ? artworkUrl : spriteUrl}
                     alt={pokemon.name}
-                    width={displayMode === "artwork" ? 80 : 48}
-                    height={displayMode === "artwork" ? 80 : 48}
+                    width={displayMode === "artwork" ? 82 : 48}
+                    height={displayMode === "artwork" ? 82 : 48}
                     loading="lazy"
                     onError={(e) => {
-                      // Fallback to sprite if artwork is missing
                       if (e.target.src !== spriteUrl) {
                         e.target.src = spriteUrl;
                       }
                     }}
                   />
                 </div>
+
                 <div className="pokemon-card-info">
-                  <span className="pokemon-id">#{id.padStart(3, "0")}</span>
+                  <div className="card-id-row">
+                    <span className="pokemon-id">#{id.padStart(3, "0")}</span>
+                  </div>
                   <span className="pokemon-name">{capitalize(pokemon.name)}</span>
                 </div>
+
                 <div className="pokemon-card-arrow" aria-hidden="true">
                   →
                 </div>
@@ -267,14 +299,14 @@ function PokemonList() {
             onClick={handleLoadMore}
             disabled={isLoadingMore}
           >
-            {isLoadingMore ? "Loading More…" : `Load Next ${PAGE_SIZE} Pokémon`}
+            {isLoadingMore ? "Loading Next…" : `Load Next ${PAGE_SIZE} Pokémon`}
           </button>
           <button
             type="button"
             className="load-all-btn"
             onClick={handleLoadAll}
           >
-            Load All ({allGenerationList.length - pokemons.length} remaining)
+            Load All Remaining ({allGenerationList.length - pokemons.length})
           </button>
         </div>
       )}
