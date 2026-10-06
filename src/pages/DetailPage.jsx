@@ -1,340 +1,361 @@
-import { useState, useEffect, useRef } from "react";
-import { useParams, Link } from "react-router-dom";
-import confetti from "canvas-confetti";
-import { API_BASE_URL } from "../config.js";
+import { useState, useEffect } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import {
-  capitalize,
-  TYPE_COLORS,
-  getCryAudioUrl,
-  sound,
-  isInTeam,
-  toggleTeamMember,
-} from "../utils.js";
+  ArrowLeft,
+  Star,
+  Play,
+  Bookmark,
+  Calendar,
+  Clock,
+  Share2,
+  Sparkles,
+  Users,
+  CheckCircle,
+} from "lucide-react";
+import { getMovieDetails } from "../services/tmdbApi.js";
+import { getPosterUrl, getBackdropUrl, getProfileUrl } from "../config.js";
+import SafeImage from "../components/SafeImage.jsx";
+import { isInWatchlist, toggleWatchlist, WATCHLIST_EVENT } from "../services/watchlist.js";
+import { cinematicAudio } from "../services/soundEngine.js";
+import TrailerModal from "../components/TrailerModal.jsx";
+import MovieCard from "../components/MovieCard.jsx";
 
-function DetailPage() {
-  const { name } = useParams();
-  const [pokemon, setPokemon] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
+export default function DetailPage() {
+  const { id } = useParams();
+  const navigate = useNavigate();
 
-  // Enhancements
-  const [isShiny, setIsShiny] = useState(false);
-  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [inParty, setInParty] = useState(false);
-  const [catchAlert, setCatchAlert] = useState(null);
-  const audioRef = useRef(null);
+  const [movie, setMovie] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [inWatchlist, setInWatchlist] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [showTrailer, setShowTrailer] = useState(false);
+  const [activeTrailerMovie, setActiveTrailerMovie] = useState(null);
 
-  // Fetch Pokemon details with race-condition guard
   useEffect(() => {
-    let isCurrent = true;
+    let isMounted = true;
+    window.scrollTo({ top: 0, behavior: "smooth" });
 
-    async function loadPokemon() {
-      setIsLoading(true);
-      setError(null);
-      setPokemon(null);
-      setIsShiny(false);
-      setCatchAlert(null);
-
-      try {
-        const response = await fetch(`${API_BASE_URL}/pokemon/${name.toLowerCase()}`);
-        if (!response.ok) {
-          throw new Error(`No Pokémon named "${name}" — check the spelling.`);
+    getMovieDetails(id)
+      .then((data) => {
+        if (isMounted) {
+          setMovie(data);
+          if (data?.id) setInWatchlist(isInWatchlist(data.id));
+          setLoading(false);
         }
-        const data = await response.json();
-        if (isCurrent) {
-          setPokemon(data);
-          setInParty(isInTeam(data.name));
-        }
-      } catch (err) {
-        if (isCurrent) {
-          setError(err.message);
-        }
-      } finally {
-        if (isCurrent) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    loadPokemon();
-
-    return () => {
-      isCurrent = false;
-    };
-  }, [name]);
-
-  // Page title effect
-  useEffect(() => {
-    if (pokemon) {
-      document.title = `${capitalize(pokemon.name)} (#${String(pokemon.id).padStart(3, "0")}) — PokéDex Mini`;
-    } else {
-      document.title = "PokéDex Mini";
-    }
-
-    return () => {
-      document.title = "PokéDex Mini";
-    };
-  }, [pokemon]);
-
-  // Audio cry player
-  const playCry = () => {
-    if (!pokemon) return;
-    const cryUrl = pokemon.cries?.latest || getCryAudioUrl(pokemon.id);
-    if (!audioRef.current) {
-      audioRef.current = new Audio(cryUrl);
-    } else {
-      audioRef.current.src = cryUrl;
-    }
-
-    setIsPlayingAudio(true);
-    audioRef.current.volume = 0.65;
-    audioRef.current.play().catch(() => {
-      setIsPlayingAudio(false);
-    });
-
-    audioRef.current.onended = () => {
-      setIsPlayingAudio(false);
-    };
-  };
-
-  // Shiny toggle with sparkle effect
-  const toggleShiny = (e) => {
-    const nextShiny = !isShiny;
-    setIsShiny(nextShiny);
-    sound.playShiny();
-
-    if (nextShiny && e) {
-      const rect = e.target.getBoundingClientRect();
-      const x = (rect.left + rect.width / 2) / window.innerWidth;
-      const y = (rect.top + rect.height / 2) / window.innerHeight;
-      confetti({
-        particleCount: 40,
-        spread: 70,
-        origin: { x, y },
-        colors: ["#ffd700", "#ff69b4", "#00ffff", "#ffffff", "#f59e0b"],
+      })
+      .catch((err) => {
+        console.error("Failed to load movie details:", err);
+        setLoading(false);
       });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [id]);
+
+  useEffect(() => {
+    const handleWatchlistChange = () => {
+      if (movie) setInWatchlist(isInWatchlist(movie.id));
+    };
+    window.addEventListener(WATCHLIST_EVENT, handleWatchlistChange);
+    return () => window.removeEventListener(WATCHLIST_EVENT, handleWatchlistChange);
+  }, [movie]);
+
+  if (loading) {
+    return (
+      <div className="detail-loading-screen">
+        <div className="cinema-spinner" />
+        <p className="mt-4 text-slate-300 font-medium">Opening Cinema Archive...</p>
+      </div>
+    );
+  }
+
+  if (!movie) {
+    return (
+      <div className="detail-not-found">
+        <h2>Movie Not Found</h2>
+        <p>We couldn't retrieve the cinema records for this title.</p>
+        <Link to="/" className="btn-primary-gradient mt-4">
+          Return to Cinema Atlas
+        </Link>
+      </div>
+    );
+  }
+
+  const handleToggleWatchlist = () => {
+    const res = toggleWatchlist(movie);
+    setInWatchlist(res.added);
+  };
+
+  const handleShare = () => {
+    cinematicAudio.playClick();
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
     }
   };
 
-  // Handle catching/adding to trainer party
-  const handleToggleParty = (e) => {
-    if (!pokemon) return;
-    const res = toggleTeamMember(pokemon);
-    if (res.success) {
-      setInParty(res.added);
-      setCatchAlert(res.added ? `Caught ${capitalize(pokemon.name)} for your Party!` : `Released ${capitalize(pokemon.name)} from Party.`);
-      window.dispatchEvent(new Event("team_updated"));
+  const releaseYear = movie.release_date
+    ? new Date(movie.release_date).getFullYear()
+    : "—";
 
-      if (res.added && e) {
-        const rect = e.target.getBoundingClientRect();
-        confetti({
-          particleCount: 45,
-          spread: 80,
-          origin: {
-            x: (rect.left + rect.width / 2) / window.innerWidth,
-            y: (rect.top + rect.height / 2) / window.innerHeight,
-          },
-          colors: ["#ef4444", "#ffffff", "#000000", "#facc15"],
-        });
-      }
-    } else {
-      setCatchAlert(res.reason);
-      sound.playBlip();
-    }
+  const runtimeText = movie.runtime
+    ? `${Math.floor(movie.runtime / 60)}h ${movie.runtime % 60}m`
+    : "—";
 
-    setTimeout(() => setCatchAlert(null), 3500);
+  const formatCurrency = (val) => {
+    if (!val || val === 0) return "N/A";
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    }).format(val);
   };
-
-  if (isLoading) return <p className="status">Loading {name}…</p>;
-  if (error) return <p className="status status-error">{error}</p>;
-  if (!pokemon) return null;
-
-  // Determine artwork / sprites
-  const defaultArt =
-    pokemon.sprites?.other?.["official-artwork"]?.front_default ||
-    pokemon.sprites?.front_default;
-  const shinyArt =
-    pokemon.sprites?.other?.["official-artwork"]?.front_shiny ||
-    pokemon.sprites?.front_shiny ||
-    defaultArt;
-
-  const currentArt = isShiny ? shinyArt : defaultArt;
-
-  // Calculate Base Stat Total (BST)
-  const totalStats = pokemon.stats.reduce((acc, curr) => acc + curr.base_stat, 0);
-  const maxStatCap = 255;
-
-  const primaryType = pokemon.types[0]?.type?.name || "normal";
-  const primaryTheme = TYPE_COLORS[primaryType] || TYPE_COLORS.normal;
-
-  const prevId = pokemon.id > 1 ? pokemon.id - 1 : null;
-  const nextId = pokemon.id < 1025 ? pokemon.id + 1 : null;
 
   return (
-    <div
-      className="detail-page glass-panel"
-      style={{
-        "--element-glow": primaryTheme.glow,
-        "--element-gradient": primaryTheme.gradient,
-        "--element-color": primaryTheme.bg,
-      }}
-    >
-      <div className="detail-top-nav">
-        <Link to="/" className="back-link">
-          ← Back to list
-        </Link>
-        <div className="detail-quick-nav">
-          {prevId && (
-            <Link to={`/pokemon/${prevId}`} className="quick-nav-btn prev">
-              ← #{String(prevId).padStart(3, "0")}
-            </Link>
-          )}
-          {nextId && (
-            <Link to={`/pokemon/${nextId}`} className="quick-nav-btn next">
-              #{String(nextId).padStart(3, "0")} →
-            </Link>
-          )}
-        </div>
+    <div className="detail-page-container">
+      {/* Immersive Backdrop Header */}
+      <div className="detail-backdrop-frame">
+        <SafeImage
+          src={getBackdropUrl(movie.backdrop_path, "w1280")}
+          alt=""
+          fallback="backdrop"
+          loading="eager"
+          fetchPriority="high"
+          className="detail-backdrop-img"
+        />
+        <div className="detail-backdrop-gradient" />
       </div>
 
-      {catchAlert && (
-        <div className={`catch-notification-banner ${inParty ? "caught" : "released"}`}>
-          <span>{inParty ? "🔴" : "⚪"}</span> {catchAlert}
-        </div>
-      )}
-
-      <div className="detail-hero">
-        <div className="artwork-stage">
-          <div className="artwork-element-aura" />
-          <img
-            src={currentArt}
-            alt={pokemon.name}
-            width={200}
-            height={200}
-            className={`detail-main-img ${isShiny ? "shiny-glow" : ""}`}
-          />
-
-          <div className="artwork-action-bar">
-            <button
-              type="button"
-              className={`action-pill-btn ${isShiny ? "active-shiny" : ""}`}
-              onClick={toggleShiny}
-            >
-              ✨ {isShiny ? "Showing Shiny" : "View Shiny"}
-            </button>
-
-            <button
-              type="button"
-              className={`action-pill-btn ${isPlayingAudio ? "playing" : ""}`}
-              onClick={playCry}
-              title="Play Pokémon in-game cry"
-            >
-              🔊 {isPlayingAudio ? "Playing…" : "Play Cry"}
-            </button>
-          </div>
+      <div className="detail-content-wrapper">
+        {/* Navigation & Back Action */}
+        <div className="detail-top-nav">
+          <button
+            onClick={() => {
+              cinematicAudio.playClick();
+              if (window.history.length > 1) navigate(-1);
+              else navigate("/");
+            }}
+            className="btn-back-nav"
+          >
+            <ArrowLeft size={16} />
+            <span>Back to Explorer</span>
+          </button>
         </div>
 
-        <div className="detail-header-info">
-          <div className="title-row-actions">
-            <div>
-              <span className="detail-id-badge">
-                #{String(pokemon.id).padStart(3, "0")}
-              </span>
-              <h2>{capitalize(pokemon.name)}</h2>
-            </div>
-
-            <button
-              type="button"
-              className={`catch-party-btn ${inParty ? "is-in-party" : ""}`}
-              onClick={handleToggleParty}
-              title={inParty ? "Remove from party" : "Add to your party of 6"}
-            >
-              <span className="pokeball-catch-icon">{inParty ? "🎒" : "🔴"}</span>
-              {inParty ? "In Party" : "Catch for Party"}
-            </button>
-          </div>
-
-          {/* Standard class name for rubric compliance */}
-          <p className="pokemon-types">
-            {pokemon.types.map((t) => t.type.name).join(", ")}
-          </p>
-
-          <div className="type-badge-row">
-            {pokemon.types.map((t) => {
-              const typeName = t.type.name;
-              const typeInfo = TYPE_COLORS[typeName] || TYPE_COLORS.normal;
-              return (
-                <span
-                  key={typeName}
-                  className="type-badge-pill"
-                  style={{
-                    background: typeInfo.gradient || typeInfo.bg,
-                    boxShadow: `0 0 16px ${typeInfo.glow}`,
-                  }}
-                >
-                  <span className="type-pill-icon">{typeInfo.icon}</span>
-                  {capitalize(typeName)}
-                </span>
-              );
-            })}
-          </div>
-
-          <div className="physical-specs-grid">
-            <div className="spec-card">
-              <span className="spec-label">Height</span>
-              <span className="spec-value">{(pokemon.height / 10).toFixed(1)} m</span>
-            </div>
-            <div className="spec-card">
-              <span className="spec-label">Weight</span>
-              <span className="spec-value">{(pokemon.weight / 10).toFixed(1)} kg</span>
-            </div>
-            <div className="spec-card">
-              <span className="spec-label">Abilities</span>
-              <span className="spec-value abilities-text">
-                {pokemon.abilities
-                  .map((a) =>
-                    a.is_hidden
-                      ? `${capitalize(a.ability.name)} (HA)`
-                      : capitalize(a.ability.name)
-                  )
-                  .join(", ")}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="stats-container">
-        <div className="stats-header-bar">
-          <h3>Base Statistics</h3>
-          <span className="bst-badge">Total BST: {totalStats}</span>
-        </div>
-
-        <ul className="stat-list">
-          {pokemon.stats.map((s) => {
-            const pct = Math.min(100, Math.round((s.base_stat / maxStatCap) * 100));
-            let statColorClass = "stat-low";
-            if (s.base_stat >= 110) statColorClass = "stat-hyper";
-            else if (s.base_stat >= 80) statColorClass = "stat-high";
-            else if (s.base_stat >= 50) statColorClass = "stat-med";
-
-            return (
-              <li key={s.stat.name}>
-                <span className="stat-name">{s.stat.name}</span>
-                <span className="stat-value">{s.base_stat}</span>
-                <div className="stat-meter-track" aria-hidden="true">
-                  <div
-                    className={`stat-meter-fill ${statColorClass}`}
-                    style={{ width: `${pct}%` }}
-                  />
+        {/* Main Grid: Left Poster & Right Information */}
+        <div className="detail-main-grid">
+          {/* Left Column: Poster & Quick Controls */}
+          <div className="detail-left-col">
+            <div className="detail-poster-wrapper">
+              <SafeImage
+                src={getPosterUrl(movie.poster_path, "w780")}
+                alt={movie.title}
+                loading="eager"
+                className="detail-poster-img"
+              />
+              <button
+                onClick={() => {
+                  setActiveTrailerMovie(movie);
+                  setShowTrailer(true);
+                }}
+                className="detail-poster-play-overlay"
+                title="Watch Official Trailer"
+              >
+                <div className="poster-play-circle">
+                  <Play size={24} fill="currentColor" className="ml-1" />
                 </div>
-              </li>
-            );
-          })}
-        </ul>
+                <span>Play Trailer</span>
+              </button>
+            </div>
+
+            <div className="detail-left-actions">
+              <button
+                onClick={() => {
+                  setActiveTrailerMovie(movie);
+                  setShowTrailer(true);
+                }}
+                className="btn-detail-trailer"
+              >
+                <Play size={18} fill="currentColor" />
+                <span>Watch Trailer</span>
+              </button>
+
+              <button
+                onClick={handleToggleWatchlist}
+                className={`btn-detail-watchlist ${inWatchlist ? "active" : ""}`}
+              >
+                <Bookmark size={18} fill={inWatchlist ? "currentColor" : "none"} />
+                <span>{inWatchlist ? "In Your Watchlist" : "Add to Watchlist"}</span>
+              </button>
+
+              <button onClick={handleShare} className="btn-detail-share">
+                {copied ? (
+                  <>
+                    <CheckCircle size={16} className="text-emerald-400" />
+                    <span>Link Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Share2 size={16} />
+                    <span>Share Film</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Right Column: Deep Metadata, Storyline, Cast */}
+          <div className="detail-right-col">
+            {/* Title & Tagline */}
+            <div className="detail-header-block">
+              {movie.vote_average >= 8.5 && (
+                <div className="detail-acclaimed-badge">
+                  <Sparkles size={13} className="text-amber-400" />
+                  CRITICALLY ACCLAIMED MASTERPIECE
+                </div>
+              )}
+              <h1 className="detail-title">{movie.title}</h1>
+              {movie.tagline && (
+                <p className="detail-tagline">“{movie.tagline}”</p>
+              )}
+            </div>
+
+            {/* Quick Stats Pill Strip */}
+            <div className="detail-stats-strip">
+              <div className="stat-pill rating">
+                <Star size={16} className="text-amber-400" fill="currentColor" />
+                <span className="stat-highlight">{Number(movie.vote_average || 7.5).toFixed(1)}</span>
+                <span className="stat-sub">({movie.vote_count?.toLocaleString()} votes)</span>
+              </div>
+
+              <div className="stat-pill">
+                <Clock size={15} />
+                <span>{runtimeText}</span>
+              </div>
+
+              <div className="stat-pill">
+                <Calendar size={15} />
+                <span>{releaseYear}</span>
+              </div>
+
+              <div className="stat-pill badge">
+                <span>{movie.status || "Released"}</span>
+              </div>
+            </div>
+
+            {/* Genre Tags */}
+            <div className="detail-genres-wrap">
+              {movie.genres?.map((g) => (
+                <span key={g.id || g.name} className="detail-genre-pill">
+                  {g.name}
+                </span>
+              ))}
+            </div>
+
+            {/* Storyline Overview */}
+            <div className="detail-section-block">
+              <h3 className="detail-section-heading">Storyline</h3>
+              <p className="detail-overview-text">
+                {movie.overview || "No detailed synopsis currently on file."}
+              </p>
+            </div>
+
+            {/* Production & Financial Stats */}
+            <div className="detail-stats-grid">
+              {movie.director && (
+                <div className="stat-card">
+                  <span className="stat-card-label">Director</span>
+                  <span className="stat-card-value">{movie.director}</span>
+                </div>
+              )}
+
+              {movie.budget > 0 && (
+                <div className="stat-card">
+                  <span className="stat-card-label">Production Budget</span>
+                  <span className="stat-card-value">{formatCurrency(movie.budget)}</span>
+                </div>
+              )}
+
+              {movie.revenue > 0 && (
+                <div className="stat-card">
+                  <span className="stat-card-label">Worldwide Box Office</span>
+                  <span className="stat-card-value">{formatCurrency(movie.revenue)}</span>
+                </div>
+              )}
+
+              {movie.original_language && (
+                <div className="stat-card">
+                  <span className="stat-card-label">Original Language</span>
+                  <span className="stat-card-value uppercase">
+                    {movie.original_language}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Top Cast & Characters */}
+            {movie.cast && movie.cast.length > 0 && (
+              <div className="detail-section-block">
+                <div className="flex items-center gap-2 mb-3">
+                  <Users size={18} className="text-amber-400" />
+                  <h3 className="detail-section-heading mb-0">Featured Cast</h3>
+                </div>
+
+                <div className="detail-cast-carousel">
+                  {movie.cast.map((actor) => (
+                    <div key={actor.id || actor.name} className="cast-card">
+                      <div className="cast-photo-frame">
+                        <SafeImage
+                          src={getProfileUrl(actor.profile_path, "w185")}
+                          alt={actor.name}
+                          fallback="profile"
+                          className="cast-photo-img"
+                        />
+                      </div>
+                      <div className="cast-info">
+                        <div className="cast-actor-name">{actor.name}</div>
+                        <div className="cast-role-name">{actor.character || "Cast"}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Similar / Recommended Movies Carousel */}
+        {movie.similar && movie.similar.length > 0 && (
+          <div className="detail-similar-section">
+            <h3 className="detail-section-heading mb-4">Recommended Titles</h3>
+            <div className="similar-movies-grid">
+              {movie.similar.slice(0, 5).map((sim) => (
+                <MovieCard
+                  key={sim.id}
+                  movie={sim}
+                  onOpenTrailer={(m) => {
+                    setActiveTrailerMovie(m);
+                    setShowTrailer(true);
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Trailer Modal */}
+      {showTrailer && activeTrailerMovie && (
+        <TrailerModal
+          movie={activeTrailerMovie}
+          onClose={() => {
+            setShowTrailer(false);
+            setActiveTrailerMovie(null);
+          }}
+        />
+      )}
     </div>
   );
 }
-
-export default DetailPage;
